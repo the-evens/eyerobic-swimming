@@ -17,9 +17,3 @@ ENV/
 # IDE
 .vscode/
 .idea/
-
-# Large media files
-*.mp4
-*.mov
-*.avi
-*.wmv 
