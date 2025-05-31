@@ -226,7 +226,7 @@ def run_calibration(video_path):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Real-time swimming pool T-marker tracking')
-    parser.add_argument('--input', default='swimming.mp4', help='Input video file')
+    parser.add_argument('input', help='Input video file (required)')
     parser.add_argument('--calibrate', action='store_true', help='Run color calibration')
     args = parser.parse_args()
     
