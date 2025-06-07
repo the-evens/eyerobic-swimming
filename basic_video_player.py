@@ -1,8 +1,12 @@
+import os
+os.environ['OPENCV_FFMPEG_READ_ATTEMPTS'] = '1000000'  # Set to a very high value
+
 import cv2
 import argparse
 import numpy as np
+import time  # Add time module for delay
 
-def detect_bubbles(thresh, min_radius=1, max_radius=15, min_circles=5, max_circles=20):
+def detect_bubbles(thresh, min_radius=1, max_radius=15, min_circles=3, max_circles=15):
     """Detect bubbles in the thresholded image using Hough Circle Transform"""
     # Apply additional preprocessing to enhance bubble detection
     # Dilate the image to connect nearby white regions
@@ -17,9 +21,9 @@ def detect_bubbles(thresh, min_radius=1, max_radius=15, min_circles=5, max_circl
         blurred,
         cv2.HOUGH_GRADIENT,
         dp=1,
-        minDist=5,    # Reduced minimum distance between circles
-        param1=20,    # Reduced edge detection sensitivity
-        param2=20,    # Increased accumulator threshold for more confident detection
+        minDist=3,    # Reduced minimum distance between circles
+        param1=15,    # Reduced edge detection sensitivity
+        param2=15,    # Reduced accumulator threshold for more sensitive detection
         minRadius=min_radius,
         maxRadius=max_radius
     )
@@ -33,7 +37,7 @@ def detect_bubbles(thresh, min_radius=1, max_radius=15, min_circles=5, max_circl
         for circle in circles[0]:
             x, y, r = circle
             # Higher confidence for circles that are more circular and have good contrast
-            if r > 4:  # Increased minimum radius for higher confidence
+            if r > 3:  # Reduced minimum radius for higher sensitivity
                 confidence += 1
         
         # Require both sufficient number of circles and high confidence
@@ -48,7 +52,10 @@ def main():
     parser.add_argument('input', help='Input video file')
     args = parser.parse_args()
     
-    cap = cv2.VideoCapture(args.input)
+    # Set FFmpeg backend parameters
+    cap = cv2.VideoCapture(args.input, cv2.CAP_FFMPEG)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # Set buffer size
+    
     if not cap.isOpened():
         print(f"Error: Could not open {args.input}")
         return
@@ -75,13 +82,16 @@ def main():
     last_clear_frame_lines = None  # Store the last clear frame's line positions
     last_clear_green_lines = None  # Store the last clear frame's green lines
     bubble_detection_count = 0  # Counter for consecutive bubble detections
-    BUBBLE_HYSTERESIS = 3  # Number of frames to maintain bubble detection state
+    BUBBLE_HYSTERESIS = 2  # Reduced from 3 to 2 for faster response
     
     while True:
         if not paused:
             ret, frame = cap.read()
             if not ret:
                 break
+            
+            # Add a small delay between frame reads
+            time.sleep(0.001)  # 1ms delay
             
             # Display original frame
             cv2.imshow('Original', frame)
@@ -117,7 +127,7 @@ def main():
             edges = cv2.Canny(thresh, 50, 150, apertureSize=3)
             lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=25, minLineLength=100, maxLineGap=30)
 
-            if lines is not None:
+            if lines is not None and not bubbles_detected:  # Only process lines if no bubbles detected
                 line_candidates = []
                 for line_segment in lines:
                     x1, y1, x2, y2 = line_segment[0]
