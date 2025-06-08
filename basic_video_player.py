@@ -52,7 +52,28 @@ def process_frame(frame):
     global prev_avg_line_endpoints, bubble_detected_counter, bubble_clear_counter
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 1)
-    _, thresh = cv2.threshold(blurred, 70, 255, cv2.THRESH_BINARY)
+    
+    # Automatic threshold calculation
+    # Method 1: Otsu's method for global threshold
+    otsu_thresh, _ = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Method 2: Sample the center region where lines are expected
+    h, w = blurred.shape
+    center_region = blurred[0:h//2, w//3:2*w//3]  # Upper 50% height, center third width
+    
+    # Calculate mean and std of center region
+    mean_val = np.mean(center_region)
+    std_val = np.std(center_region)
+    
+    # Adaptive threshold based on statistics
+    # Lines are typically darker than background in pools
+    adaptive_thresh = mean_val - 1.5 * std_val
+    
+    # Combine both methods with a weighted average
+    final_thresh = 0.6 * adaptive_thresh + 0.4 * otsu_thresh #adjust weights if needed
+    final_thresh = np.clip(final_thresh, 30, 200)  # Reasonable bounds
+    
+    _, thresh = cv2.threshold(blurred, int(final_thresh), 255, cv2.THRESH_BINARY)
     kernel = np.ones((5, 5), np.uint8)
     thresh_clean = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
     thresh_clean = cv2.morphologyEx(thresh_clean, cv2.MORPH_OPEN, kernel)
@@ -203,6 +224,11 @@ def process_frame(frame):
         status = "NO BUBBLES"
         color = (0, 255, 0)
     cv2.putText(overlay, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    
+    # Add threshold value display
+    cv2.putText(overlay, f"Thresh: {int(final_thresh)}", (10, 70), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    
     return frame, thresh_clean, overlay
 
 def worker():
