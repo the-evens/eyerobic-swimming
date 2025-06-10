@@ -71,8 +71,43 @@ def find_lines(frame):
             
     return None
 
-# need to implement
-# def find_t_marker(frame):
+def find_t_marker(edges, left_line, right_line):
+    """Detect T-marker by finding horizontal lines between the lane lines"""
+    if left_line is None or right_line is None:
+        return False
+    
+    # Detect horizontal lines
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=100, maxLineGap=50)
+    
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            
+            # Check if line is horizontal (small slope)
+            if abs(y2 - y1) < 20 and abs(x2 - x1) > 50:
+                # Get x-coordinates of lane lines at this y-position
+                y_avg = (y1 + y2) // 2
+                
+                # Calculate x positions of lane lines at y_avg
+                def get_x_at_y(line, y):
+                    x1, y1, x2, y2 = line
+                    if y2 - y1 == 0:
+                        return x1
+                    return int(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+                
+                left_x = get_x_at_y(left_line, y_avg)
+                right_x = get_x_at_y(right_line, y_avg)
+                
+                # Check if horizontal line is between lane lines
+                line_left = min(x1, x2)
+                line_right = max(x1, x2)
+                
+                if line_left < right_x and line_right > left_x:
+                    # Check if in upper portion of frame (approaching)
+                    if y_avg < edges.shape[0] * 0.6:
+                        return True
+    
+    return False
 
 def draw_position_indicator(frame, center_x):
     frame_center = frame.shape[1] // 2
@@ -135,7 +170,7 @@ def main():
             lines = find_lines(edges)
 
             # find t-marker
-            # t_marker = find_t_marker(edges)
+            t_marker_detected = find_t_marker(edges, lines[0], lines[1]) if lines else False
 
             # smoothing (vibe coded) ------------------------------------------------------------
             if lines:
@@ -159,6 +194,11 @@ def main():
                     center_x = (smooth_center_line[0] + smooth_center_line[2]) // 2
                     draw_position_indicator(original_frame, center_x)
                     
+                    # draw wall approaching warning
+                    if t_marker_detected:
+                        cv2.putText(original_frame, "WALL APPROACHING", (50, 150), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
+                    
                     cv2.imshow('original', original_frame)
                     
                     prev_center_line = smooth_center_line
@@ -170,6 +210,11 @@ def main():
                 # draw position indicator for previous line
                 center_x = (prev_center_line[0] + prev_center_line[2]) // 2
                 draw_position_indicator(original_frame, center_x)
+                
+                # draw wall approaching warning if detected
+                if t_marker_detected:
+                    cv2.putText(original_frame, "WALL APPROACHING", (50, 150), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
                 
                 cv2.imshow('original', original_frame)
             # ----------------------------------------------------------------------------------
