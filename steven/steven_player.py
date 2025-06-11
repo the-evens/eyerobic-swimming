@@ -1,6 +1,7 @@
 import cv2
 import argparse
 import numpy as np
+from collections import deque
 
 def treshold_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -129,6 +130,33 @@ def draw_position_indicator(frame, center_x):
     cv2.putText(frame, position, (text_x, text_y), 
               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
 
+class PositionTracker:
+    def __init__(self, frame_interval=5):
+        self.frame_interval = frame_interval
+        self.frame_count = 0
+        self.positions = []
+    
+    def update(self, left_line, right_line):
+        self.frame_count += 1
+        if self.frame_count % self.frame_interval == 0:
+            if left_line is not None and right_line is not None:
+                # Store the x-coordinates of both lines at the middle of the frame
+                height = 720  # Assuming standard video height
+                mid_y = height // 2
+                
+                def get_x_at_y(line, y):
+                    x1, y1, x2, y2 = line
+                    if x2 - x1 == 0:
+                        return x1
+                    return int(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+                
+                left_x = get_x_at_y(left_line, mid_y)
+                right_x = get_x_at_y(right_line, mid_y)
+                self.positions.append((left_x, right_x))
+    
+    def get_positions(self):
+        return self.positions
+
 # main function
 def main():
     # parse input video file
@@ -146,6 +174,7 @@ def main():
     paused = False
     SMOOTHING_FACTOR = 0.1  # smoothing
     prev_center_line = None
+    position_tracker = PositionTracker(frame_interval=5)
 
     # play through video
     while True:
@@ -176,6 +205,9 @@ def main():
             if lines:
                 left_line, right_line, center_line, frame = lines
                 cv2.imshow('lines', frame)
+                
+                # Update position tracker
+                position_tracker.update(left_line, right_line)
                 
                 # apply exponential smoothing to center line
                 if prev_center_line is None:
@@ -228,6 +260,11 @@ def main():
     
     cap.release()
     cv2.destroyAllWindows()
+    
+    # Print tracked positions at the end
+    print("\nTracked Lane Positions (every 5 frames):")
+    for i, (left_x, right_x) in enumerate(position_tracker.get_positions()):
+        print(f"Frame {i*5}: Left={left_x}, Right={right_x}")
 
 # program
 if __name__ == "__main__":
