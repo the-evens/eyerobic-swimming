@@ -74,7 +74,7 @@ def find_lines(frame):
 def find_t_marker(edges, left_line, right_line):
     """Detect T-marker by finding horizontal lines between the lane lines"""
     if left_line is None or right_line is None:
-        return False
+        return False, None, None, None
     
     # Detect horizontal lines
     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=100, maxLineGap=50)
@@ -105,9 +105,9 @@ def find_t_marker(edges, left_line, right_line):
                 if line_left < right_x and line_right > left_x:
                     # Check if in upper portion of frame (approaching)
                     if y_avg < edges.shape[0] * 0.6:
-                        return True
+                        return True, y_avg, left_x, right_x
     
-    return False
+    return False, None, None, None
 
 def draw_position_indicator(frame, center_x):
     frame_center = frame.shape[1] // 2
@@ -170,7 +170,7 @@ def main():
             lines = find_lines(edges)
 
             # find t-marker
-            t_marker_detected = find_t_marker(edges, lines[0], lines[1]) if lines else False
+            t_marker_detected, y_avg, left_x, right_x = find_t_marker(edges, lines[0], lines[1]) if lines else (False, None, None, None)
 
             # smoothing (vibe coded) ------------------------------------------------------------
             if lines:
@@ -196,6 +196,7 @@ def main():
                     
                     # draw wall approaching warning
                     if t_marker_detected:
+                        cv2.line(original_frame, (0, y_avg), (frame.shape[1]-1, y_avg), (0, 0, 255), 4)
                         cv2.putText(original_frame, "WALL APPROACHING", (50, 150), 
                                   cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
                     
@@ -213,9 +214,9 @@ def main():
                 
                 # draw wall approaching warning if detected
                 if t_marker_detected:
+                    cv2.line(original_frame, (0, y_avg), (frame.shape[1]-1, y_avg), (255, 0, 0), 4)
                     cv2.putText(original_frame, "WALL APPROACHING", (50, 150), 
                               cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
-                
                 cv2.imshow('original', original_frame)
             # ----------------------------------------------------------------------------------
 
