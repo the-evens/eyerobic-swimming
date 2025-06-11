@@ -136,23 +136,16 @@ class PositionTracker:
         self.frame_count = 0
         self.positions = []
     
-    def update(self, left_line, right_line):
+    def update(self, center_x, frame_width):
         self.frame_count += 1
         if self.frame_count % self.frame_interval == 0:
-            if left_line is not None and right_line is not None:
-                # Store the x-coordinates of both lines at the middle of the frame
-                height = 720  # Assuming standard video height
-                mid_y = height // 2
-                
-                def get_x_at_y(line, y):
-                    x1, y1, x2, y2 = line
-                    if x2 - x1 == 0:
-                        return x1
-                    return int(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
-                
-                left_x = get_x_at_y(left_line, mid_y)
-                right_x = get_x_at_y(right_line, mid_y)
-                self.positions.append((left_x, right_x))
+            frame_center = frame_width // 2
+            position = "CENTERED"
+            if center_x < frame_center - 200:
+                position = "LEFT"
+            elif center_x > frame_center + 200:
+                position = "RIGHT"
+            self.positions.append((self.frame_count, position, center_x))
     
     def get_positions(self):
         return self.positions
@@ -206,9 +199,6 @@ def main():
                 left_line, right_line, center_line, frame = lines
                 cv2.imshow('lines', frame)
                 
-                # Update position tracker
-                position_tracker.update(left_line, right_line)
-                
                 # apply exponential smoothing to center line
                 if prev_center_line is None:
                     prev_center_line = center_line
@@ -225,6 +215,9 @@ def main():
                     # draw position indicator
                     center_x = (smooth_center_line[0] + smooth_center_line[2]) // 2
                     draw_position_indicator(original_frame, center_x)
+                    
+                    # Update position tracker
+                    position_tracker.update(center_x, original_frame.shape[1])
                     
                     # draw wall approaching warning
                     if t_marker_detected:
@@ -262,9 +255,9 @@ def main():
     cv2.destroyAllWindows()
     
     # Print tracked positions at the end
-    print("\nTracked Lane Positions (every 5 frames):")
-    for i, (left_x, right_x) in enumerate(position_tracker.get_positions()):
-        print(f"Frame {i*5}: Left={left_x}, Right={right_x}")
+    print("\nTracked Position History (every 5 frames):")
+    for frame_num, position, center_x in position_tracker.get_positions():
+        print(f"Frame {frame_num}: {position} (center_x: {center_x})")
 
 # program
 if __name__ == "__main__":
