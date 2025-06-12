@@ -1,7 +1,9 @@
 import cv2
 import argparse
 import numpy as np
-from collections import deque
+
+# Global list to store positions
+positions = []
 
 def treshold_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -130,25 +132,15 @@ def draw_position_indicator(frame, center_x):
     cv2.putText(frame, position, (text_x, text_y), 
               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
 
-class PositionTracker:
-    def __init__(self, frame_interval=5):
-        self.frame_interval = frame_interval
-        self.frame_count = 0
-        self.positions = []
-    
-    def update(self, center_x, frame_width):
-        self.frame_count += 1
-        if self.frame_count % self.frame_interval == 0:
-            frame_center = frame_width // 2
-            position = "CENTERED"
-            if center_x < frame_center - 200:
-                position = "LEFT"
-            elif center_x > frame_center + 200:
-                position = "RIGHT"
-            self.positions.append((self.frame_count, position, center_x))
-    
-    def get_positions(self):
-        return self.positions
+def update_position(frame_num, center_x, frame_width):
+    if frame_num % 5 == 0:
+        frame_center = frame_width // 2
+        position = "CENTERED"
+        if center_x < frame_center - 200:
+            position = "LEFT"
+        elif center_x > frame_center + 200:
+            position = "RIGHT"
+        positions.append((frame_num, position, center_x))
 
 # main function
 def main():
@@ -167,7 +159,7 @@ def main():
     paused = False
     SMOOTHING_FACTOR = 0.1  # smoothing
     prev_center_line = None
-    position_tracker = PositionTracker(frame_interval=5)
+    frame_num = 0
 
     # play through video
     while True:
@@ -175,6 +167,7 @@ def main():
             ret, frame = cap.read()
             if not ret:
                 break
+            frame_num += 1
 
             # display original frame
             original_frame = frame.copy()
@@ -216,8 +209,8 @@ def main():
                     center_x = (smooth_center_line[0] + smooth_center_line[2]) // 2
                     draw_position_indicator(original_frame, center_x)
                     
-                    # Update position tracker
-                    position_tracker.update(center_x, original_frame.shape[1])
+                    # Update position
+                    update_position(frame_num, center_x, original_frame.shape[1])
                     
                     # draw wall approaching warning
                     if t_marker_detected:
@@ -256,7 +249,7 @@ def main():
     
     # Print tracked positions at the end
     print("\nTracked Position History (every 5 frames):")
-    for frame_num, position, center_x in position_tracker.get_positions():
+    for frame_num, position, center_x in positions:
         print(f"Frame {frame_num}: {position} (center_x: {center_x})")
 
 # program
