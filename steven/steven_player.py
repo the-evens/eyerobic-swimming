@@ -3,12 +3,16 @@ import argparse
 import numpy as np
 from functions import *
 
+#myrtmp_addr = "rtmp://myip:1935/myapp/mystream"
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('input', help='Input video file')
     args = parser.parse_args()
 
+
+    # cap = cv2.VideoCapture(myrtmp_addr)
     cap = cv2.VideoCapture(args.input)
     if not cap.isOpened():
         print(f"error: could not open {args.input}")
