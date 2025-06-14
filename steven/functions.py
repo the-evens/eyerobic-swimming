@@ -1,0 +1,180 @@
+import cv2
+import numpy as np
+import sounddevice as sd
+import time
+
+def treshold_frame(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 1) # tentatively 5x5, sigma 1
+    _, thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY) # need to tune
+    return thresh
+
+def find_edges(frame):
+    edges = cv2.Canny(frame, 100, 200, apertureSize=3) # need to tune
+    return edges
+
+def find_lines(frame):
+    lines = cv2.HoughLinesP(frame, 1, np.pi / 180, threshold=75, minLineLength=300, maxLineGap=250) # good tuning can basically be perfect
+    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    height, width = frame.shape[:2]
+    
+    if lines is not None:
+        vertical_lines = [(x1, y1, x2, y2) for line in lines for x1, y1, x2, y2 in [line[0]] 
+                         if x2 - x1 == 0 or abs((y2 - y1) / (x2 - x1)) > 2]
+        
+        if len(vertical_lines) >= 8: # breathing
+            return None, None, None, frame, True
+
+        if len(vertical_lines) >= 2:
+            max_gap = 0
+            line1 = line2 = None
+            for i in range(len(vertical_lines)):
+                for j in range(i + 1, len(vertical_lines)):
+                    x1 = (vertical_lines[i][0] + vertical_lines[i][2]) // 2
+                    x2 = (vertical_lines[j][0] + vertical_lines[j][2]) // 2
+                    gap = abs(x2 - x1)
+                    if gap > max_gap:
+                        max_gap = gap
+                        line1, line2 = vertical_lines[i], vertical_lines[j]
+            
+            if line1 and line2:
+                def extend_line(x1, y1, x2, y2):
+                    if x2 - x1 == 0:
+                        return (x1, 0, x1, height)
+                    slope = (y2 - y1) / (x2 - x1)
+                    return (0, int(y1 - slope * x1), width, int(y1 + slope * (width - x1)))
+                
+                ext1 = extend_line(*line1)
+                ext2 = extend_line(*line2)
+                
+                left_line = ext1 if ext1[0] < ext2[0] else ext2
+                right_line = ext2 if ext1[0] < ext2[0] else ext1
+                
+                cv2.line(frame, (left_line[0], left_line[1]), (left_line[2], left_line[3]), (0, 255, 0), 10)
+                cv2.line(frame, (right_line[0], right_line[1]), (right_line[2], right_line[3]), (0, 255, 0), 10)
+                
+                def get_x_at_y(line, y):
+                    x1, y1, x2, y2 = line
+                    return x1 if x2 - x1 == 0 else int(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+                
+                top_x = (get_x_at_y(left_line, 0) + get_x_at_y(right_line, 0)) // 2
+                bottom_x = (get_x_at_y(left_line, height) + get_x_at_y(right_line, height)) // 2
+                center_line = (top_x, 0, bottom_x, height)
+                cv2.line(frame, (center_line[0], center_line[1]), (center_line[2], center_line[3]), (0, 0, 255), 5)
+                
+                return left_line, right_line, center_line, frame, False
+            
+    return None, None, None, frame, False
+
+def find_t_marker(edges):
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=150, maxLineGap=100)
+    frame = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    frame_center_x = edges.shape[1] // 2
+
+    if lines is not None:
+        center_lines = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            if x2 != x1 and abs((y2 - y1) / (x2 - x1)) < 1.5:  # horizontal-ish
+                line_center_x = (x1 + x2) / 2
+                if abs(line_center_x - frame_center_x) < 100:  # near center
+                    center_lines.append((x1, y1, x2, y2))
+        
+        if center_lines:
+            for x1, y1, x2, y2 in center_lines:
+                cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 255), 3)
+            cv2.line(frame, (frame_center_x, 0), (frame_center_x, edges.shape[0]), (0, 0, 255), 2)
+            
+            return frame, center_lines
+        
+    return None, None
+
+
+def generate_beep(duration=0.3, frequency=800, sample_rate=44100):
+    t = np.linspace(0, duration, int(sample_rate * duration), False)
+    beep = np.sin(frequency * 2 * np.pi * t) * 0.3
+    return beep
+
+
+def play_audio_feedback(status, last_feedback_time):
+    current_time = time.time()
+    
+    if current_time - last_feedback_time < 2.0:
+        return last_feedback_time
+    
+    if status == "GO LEFT":
+        beep = generate_beep()
+        stereo_beep = np.column_stack([beep, np.zeros_like(beep)])  # left channel only
+        sd.play(stereo_beep, samplerate=44100)
+        return current_time
+        
+    elif status == "GO RIGHT":
+        beep = generate_beep()
+        stereo_beep = np.column_stack([np.zeros_like(beep), beep])  # right channel only
+        sd.play(stereo_beep, samplerate=44100)
+        return current_time
+        
+    elif status == "WALL AHEAD":
+        beep = generate_beep(frequency=1000)  # higher pitch for wall warning
+        stereo_beep = np.column_stack([beep, beep])  # Both channels
+        sd.play(stereo_beep, samplerate=44100)
+        return current_time
+    
+    return last_feedback_time
+
+def get_current_status(center_line, wall_detected, breathing, frame):
+    """Get the current frame's status"""
+    if breathing:
+        return "BREATHING"
+    elif wall_detected:
+        return "WALL AHEAD"
+    elif center_line is not None:
+        center_x = (center_line[0] + center_line[2]) // 2
+        frame_center = frame.shape[1] // 2
+        offset = center_x - frame_center
+        
+        if offset > 80:
+            return "GO RIGHT"
+        elif offset < -100:
+            return "GO LEFT"
+        else:
+            return "CENTERED"
+    else:
+        return "NONE"
+
+
+def display_status_with_history(frame, status_history):
+    from collections import Counter
+    
+    if len(status_history) > 0:
+        most_common_status = Counter(status_history).most_common(1)[0][0]
+    else:
+        most_common_status = "NONE"
+    
+    if most_common_status == "BREATHING":
+        color = (0, 255, 0)  # green
+    elif most_common_status == "WALL AHEAD":
+        color = (0, 0, 255)  # red
+    elif most_common_status in ["GO RIGHT", "GO LEFT"]:
+        color = (0, 165, 255)  # orange
+    elif most_common_status == "CENTERED":
+        color = (255, 255, 255)  # white
+    else:
+        color = (128, 128, 128)  # gray
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.8
+    thickness = 2
+    
+    text_size = cv2.getTextSize(most_common_status, font, font_scale, thickness)[0]
+    text_x = frame.shape[1] - text_size[0] - 20
+    text_y = 40
+    
+    cv2.rectangle(frame, 
+                  (text_x - 10, text_y - text_size[1] - 10),
+                  (text_x + text_size[0] + 10, text_y + 10),
+                  (0, 0, 0), -1)
+    
+    cv2.putText(frame, most_common_status, (text_x, text_y), font, font_scale, color, thickness)
+    
+    return frame
