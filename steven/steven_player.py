@@ -8,7 +8,7 @@ from functions import *
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', help='Input video file')
+    parser.add_argument('input', help='Input video file or RTMP stream URL (e.g., rtmp://server/app/stream)')
     args = parser.parse_args()
 
 
@@ -16,6 +16,8 @@ def main():
     cap = cv2.VideoCapture(args.input)
     if not cap.isOpened():
         print(f"error: could not open {args.input}")
+        if args.input.startswith('rtmp://'):
+            print("Make sure the RTMP stream is active and accessible")
         return
 
     paused = False
