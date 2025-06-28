@@ -5,37 +5,40 @@ import time
 
 def treshold_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 1) # tentatively 5x5, sigma 1
-    _, thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY) # need to tune
+    _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY)
     return thresh
 
 def find_edges(frame):
-    edges = cv2.Canny(frame, 100, 200, apertureSize=3) # need to tune
+    edges = cv2.Canny(frame, 100, 200, apertureSize=3)
     return edges
 
 def find_lines(frame):
-    lines = cv2.HoughLinesP(frame, 1, np.pi / 180, threshold=75, minLineLength=300, maxLineGap=250) # good tuning can basically be perfect
-    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    lines = cv2.HoughLinesP(frame, 1, np.pi / 180, threshold=75, minLineLength=75, maxLineGap=75)
+    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR) # not needed for production
     height, width = frame.shape[:2]
     
     if lines is not None:
-        vertical_lines = [(x1, y1, x2, y2) for line in lines for x1, y1, x2, y2 in [line[0]] 
-                         if x2 - x1 == 0 or abs((y2 - y1) / (x2 - x1)) > 2]
+        lines_reshaped = lines.reshape(-1, 4)
+
+        dx = lines_reshaped[:, 2] - lines_reshaped[:, 0]
+        dy = lines_reshaped[:, 3] - lines_reshaped[:, 1]
+        
+        vertical_mask = (dx == 0) | (np.abs(dy / np.where(dx == 0, 1, dx)) > 2)
+        vertical_lines = lines_reshaped[vertical_mask].tolist()
         
         if len(vertical_lines) >= 8: # breathing
             return None, None, None, frame, True
 
         if len(vertical_lines) >= 2:
-            max_gap = 0
-            line1 = line2 = None
-            for i in range(len(vertical_lines)):
-                for j in range(i + 1, len(vertical_lines)):
-                    x1 = (vertical_lines[i][0] + vertical_lines[i][2]) // 2
-                    x2 = (vertical_lines[j][0] + vertical_lines[j][2]) // 2
-                    gap = abs(x2 - x1)
-                    if gap > max_gap:
-                        max_gap = gap
-                        line1, line2 = vertical_lines[i], vertical_lines[j]
+            lines_array = np.array(vertical_lines)
+            
+            x_centers = (lines_array[:, 0] + lines_array[:, 2]) / 2
+            leftmost_idx = np.argmin(x_centers)
+            rightmost_idx = np.argmax(x_centers)
+            
+            line1 = vertical_lines[leftmost_idx]
+            line2 = vertical_lines[rightmost_idx]
+            max_gap = abs(x_centers[rightmost_idx] - x_centers[leftmost_idx])
             
             if line1 and line2:
                 def extend_line(x1, y1, x2, y2):
@@ -67,7 +70,7 @@ def find_lines(frame):
     return None, None, None, frame, False
 
 def find_t_marker(edges):
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=150, maxLineGap=100)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=100, maxLineGap=75)
     frame = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     frame_center_x = edges.shape[1] // 2
 
@@ -116,14 +119,14 @@ def play_audio_feedback(status, last_feedback_time):
         
     elif status == "WALL AHEAD":
         beep = generate_beep(frequency=1000)  # higher pitch for wall warning
-        stereo_beep = np.column_stack([beep, beep])  # Both channels
+        stereo_beep = np.column_stack([beep, beep])  # both channels
         sd.play(stereo_beep, samplerate=44100)
         return current_time
     
     return last_feedback_time
 
 def get_current_status(center_line, wall_detected, breathing, frame):
-    """Get the current frame's status"""
+
     if breathing:
         return "BREATHING"
     elif wall_detected:
@@ -133,9 +136,9 @@ def get_current_status(center_line, wall_detected, breathing, frame):
         frame_center = frame.shape[1] // 2
         offset = center_x - frame_center
         
-        if offset > 80:
+        if offset > 50:
             return "GO RIGHT"
-        elif offset < -100:
+        elif offset < -50:
             return "GO LEFT"
         else:
             return "CENTERED"
