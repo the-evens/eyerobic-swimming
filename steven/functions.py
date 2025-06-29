@@ -95,10 +95,10 @@ def find_t_marker(edges):
     return None, None
 
 
-def generate_beep(duration=0.3, frequency=800, sample_rate=44100, channel='both'):
+def generate_beep(duration=0.3, frequency=800, sample_rate=44100, channel='both', volume=1.0):
     """Generate a beep sound as a pygame Sound object"""
     t = np.linspace(0, duration, int(sample_rate * duration), False)
-    beep = np.sin(frequency * 2 * np.pi * t) * 0.3
+    beep = np.sin(frequency * 2 * np.pi * t) * volume
     
     # Convert to 16-bit integers
     beep_int = (beep * 32767).astype(np.int16)
