@@ -1,7 +1,9 @@
 import cv2
 import numpy as np
-import sounddevice as sd
+import pygame
 import time
+import io
+import wave
 
 def treshold_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -93,10 +95,25 @@ def find_t_marker(edges):
     return None, None
 
 
-def generate_beep(duration=0.3, frequency=800, sample_rate=44100):
+def generate_beep(duration=0.3, frequency=800, sample_rate=44100, channel='both'):
+    """Generate a beep sound as a pygame Sound object"""
     t = np.linspace(0, duration, int(sample_rate * duration), False)
     beep = np.sin(frequency * 2 * np.pi * t) * 0.3
-    return beep
+    
+    # Convert to 16-bit integers
+    beep_int = (beep * 32767).astype(np.int16)
+    
+    # Create stereo sound based on channel
+    if channel == 'left':
+        stereo_beep = np.column_stack([beep_int, np.zeros_like(beep_int)])
+    elif channel == 'right':
+        stereo_beep = np.column_stack([np.zeros_like(beep_int), beep_int])
+    else:  # both channels
+        stereo_beep = np.column_stack([beep_int, beep_int])
+    
+    # Convert to pygame Sound
+    sound = pygame.sndarray.make_sound(stereo_beep)
+    return sound
 
 
 def play_audio_feedback(status, last_feedback_time):
@@ -105,22 +122,23 @@ def play_audio_feedback(status, last_feedback_time):
     if current_time - last_feedback_time < 2.0:
         return last_feedback_time
     
+    # Initialize pygame mixer if not already done
+    if not pygame.mixer.get_init():
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+    
     if status == "GO LEFT":
-        beep = generate_beep()
-        stereo_beep = np.column_stack([beep, np.zeros_like(beep)])  # left channel only
-        sd.play(stereo_beep, samplerate=44100)
+        beep = generate_beep(channel='left')
+        beep.play()
         return current_time
         
     elif status == "GO RIGHT":
-        beep = generate_beep()
-        stereo_beep = np.column_stack([np.zeros_like(beep), beep])  # right channel only
-        sd.play(stereo_beep, samplerate=44100)
+        beep = generate_beep(channel='right')
+        beep.play()
         return current_time
         
     elif status == "WALL AHEAD":
-        beep = generate_beep(frequency=1000)  # higher pitch for wall warning
-        stereo_beep = np.column_stack([beep, beep])  # both channels
-        sd.play(stereo_beep, samplerate=44100)
+        beep = generate_beep(frequency=1000, channel='both')  # higher pitch for wall warning
+        beep.play()
         return current_time
     
     return last_feedback_time
