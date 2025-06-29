@@ -1,6 +1,7 @@
 import cv2
 import argparse
 import numpy as np
+import time
 from functions import *
 from collections import Counter
     
@@ -26,6 +27,19 @@ def main():
     frame_num = 0
     status_history = []  
     last_audio_feedback_time = 0
+    
+    # Video recording setup
+    start_time = time.time()
+    recording_started = False
+    out = None
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    output_filename = f"recorded_frames_{int(start_time)}.mp4"
+    
+    # Start recording immediately
+    fps = cap.get(cv2.CAP_PROP_FPS) if args.input != 0 else 30
+    out = cv2.VideoWriter(output_filename, fourcc, fps, (target_width, target_height))
+    recording_started = True
+    print(f"Started recording frames to {output_filename}")
 
     while True:
         if not paused:
@@ -80,6 +94,16 @@ def main():
             if len(status_history) > 0:
                 most_common_status = Counter(status_history).most_common(1)[0][0]
                 last_audio_feedback_time = play_audio_feedback(most_common_status, last_audio_feedback_time)
+            
+            # Save frame to recording
+            if recording_started and out is not None:
+                out.write(display_frame)
+            
+            # Check if 15 seconds have passed and stop recording
+            current_time = time.time()
+            if current_time - start_time >= 15:
+                print("15 seconds completed - stopping recording and exiting")
+                break
                 
             cv2.imshow('original', display_frame)
 
@@ -88,6 +112,11 @@ def main():
             break
         elif key == 32: # space pauses
             paused = not paused
+    
+    # Clean up
+    if out is not None:
+        out.release()
+        print(f"Recording saved to {output_filename}")
     
     cap.release()
     cv2.destroyAllWindows()
